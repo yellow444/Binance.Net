@@ -388,6 +388,7 @@ namespace Binance.Net.SocketSubClients
         }
 
         #endregion
+
         #region All Market Mini Tickers Stream
         /// <summary>
         /// Subscribes to mini ticker updates stream for all symbols
@@ -407,8 +408,7 @@ namespace Binance.Net.SocketSubClients
             return await Subscribe(allMiniTickerStreamEndpoint, false, handler).ConfigureAwait(false);
         }
         #endregion
-
-
+        
         #region Individual Symbol Ticker Streams
 
         /// <summary>
@@ -477,6 +477,9 @@ namespace Binance.Net.SocketSubClients
         private void HandlePossibleSingleData<T>(JToken data, Action<IEnumerable<T>> onMessage)
         {
             var internalData = data["data"];
+            if (internalData == null)
+                return;
+
             if (internalData.Type == JTokenType.Array)
             {
                 var deserialized = BaseClient

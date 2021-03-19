@@ -32,7 +32,8 @@ namespace Binance.Net.Converters
             { OrderType.TakeProfit, "TAKE_PROFIT" },
             { OrderType.TakeProfitMarket, "TAKE_PROFIT_MARKET" },
             { OrderType.TakeProfitLimit, "TAKE_PROFIT_LIMIT" },
-            { OrderType.TrailingStopMarket, "TRAILING_STOP_MARKET" }
+            { OrderType.TrailingStopMarket, "TRAILING_STOP_MARKET" },
+            { OrderType.Liquidation, "LIQUIDATION" }
         };
 
         public override bool CanConvert(Type objectType)
@@ -40,17 +41,17 @@ namespace Binance.Net.Converters
             return objectType == typeof(OrderType);
         }
 
-        public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
+        public override object ReadJson(JsonReader reader, Type objectType, object? existingValue, JsonSerializer serializer)
         {
-            return values.Single(v => v.Value == (string)reader.Value).Key;
+            return values.Single(v => v.Value == (string?)reader.Value).Key;
         }
 
-        public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
+        public override void WriteJson(JsonWriter writer, object? value, JsonSerializer serializer)
         {
             if (quotes)
-                writer.WriteValue(values[(OrderType)value]);
+                writer.WriteValue(values[(OrderType)value!]);
             else
-                writer.WriteRawValue(values[(OrderType)value]);
+                writer.WriteRawValue(values[(OrderType)value!]);
         }
     }
 }

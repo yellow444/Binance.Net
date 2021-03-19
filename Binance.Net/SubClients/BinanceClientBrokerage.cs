@@ -1,4 +1,6 @@
-﻿using Binance.Net.Interfaces.SubClients;
+﻿using Binance.Net.Converters;
+using Binance.Net.Enums;
+using Binance.Net.Interfaces.SubClients;
 using Binance.Net.Objects.Brokerage.SubAccountData;
 using CryptoExchange.Net;
 using CryptoExchange.Net.Converters;
@@ -34,6 +36,7 @@ namespace Binance.Net.SubClients
         private const string apiKeyIpRestrictionEndpoint = "broker/subAccountApi/ipRestriction";
         private const string apiKeyIpRestrictionListEndpoint = "broker/subAccountApi/ipRestriction/ipList";
         private const string transferEndpoint = "broker/transfer";
+        private const string transferUniversalEndpoint = "broker/universalTransfer";
         private const string transferFuturesEndpoint = "broker/transfer/futures";
         private const string rebatesRecentEndpoint = "broker/rebate/recentRecord";
         private const string rebatesHistoryEndpoint = "broker/rebate/historicalRecord";
@@ -261,10 +264,12 @@ namespace Binance.Net.SubClients
         /// </summary>
         /// <param name="subAccountId">Sub account id</param>
         /// <param name="apiKey">Api key</param>
+        /// <param name="page">Page (default 1)</param>
+        /// <param name="size">Size (default 500, max 500)</param>
         /// <param name="receiveWindow">The receive window for which this request is active. When the request takes longer than this to complete the server will reject the request</param>
         /// <param name="ct">Cancellation token</param>
         /// <returns>Api key result</returns>
-        public async Task<WebCallResult<IEnumerable<BinanceBrokerageSubAccountApiKey>>> GetSubAccountApiKeyAsync(string subAccountId, string? apiKey = null, int? receiveWindow = null, CancellationToken ct = default)
+        public async Task<WebCallResult<IEnumerable<BinanceBrokerageSubAccountApiKey>>> GetSubAccountApiKeyAsync(string subAccountId, string? apiKey = null, int? page = null, int? size = null, int? receiveWindow = null, CancellationToken ct = default)
         {
             subAccountId.ValidateNotNull(nameof(subAccountId));
 
@@ -278,6 +283,8 @@ namespace Binance.Net.SubClients
                                  {"timestamp", _baseClient.GetTimestamp()}
                              };
             parameters.AddOptionalParameter("subAccountApiKey", apiKey);
+            parameters.AddOptionalParameter("page", page);
+            parameters.AddOptionalParameter("size", size);
             parameters.AddOptionalParameter("recvWindow", receiveWindow?.ToString(CultureInfo.InvariantCulture) ?? _baseClient.DefaultReceiveWindow.TotalMilliseconds.ToString(CultureInfo.InvariantCulture));
 
             return await _baseClient.SendRequestInternal<IEnumerable<BinanceBrokerageSubAccountApiKey>>(_baseClient.GetUrlSpot(apiKeyEndpoint, brokerageApi, brokerageVersion), HttpMethod.Get, ct, parameters, true).ConfigureAwait(false);
@@ -693,13 +700,14 @@ namespace Binance.Net.SubClients
         /// Query Sub Account Futures Asset info
         /// <para>If subAccountId is not sent, the size must be sent</para>
         /// </summary>
+        /// <param name="futuresType">Futures type</param>
         /// <param name="subAccountId">Sub account id</param>
         /// <param name="page">Page (default 1)</param>
         /// <param name="size">Size (default 10, max 20)</param>
         /// <param name="receiveWindow">The receive window for which this request is active. When the request takes longer than this to complete the server will reject the request</param>
         /// <param name="ct">Cancellation token</param>
         /// <returns>Asset info</returns>
-        public async Task<WebCallResult<BinanceBrokerageFuturesAssetInfo>> GetSubAccountFuturesAssetInfoAsync(
+        public async Task<WebCallResult<BinanceBrokerageFuturesAssetInfo>> GetSubAccountFuturesAssetInfoAsync(BinanceBrokerageFuturesType futuresType,
             string? subAccountId = null, int? page = null, int? size = null, int? receiveWindow = null, CancellationToken ct = default)
         {
             var timestampResult = await _baseClient.CheckAutoTimestamp(ct).ConfigureAwait(false);
@@ -708,6 +716,7 @@ namespace Binance.Net.SubClients
 
             var parameters = new Dictionary<string, object>
                              {
+                                 {"futuresType", ((int)futuresType).ToString(CultureInfo.InvariantCulture)},
                                  {"timestamp", _baseClient.GetTimestamp()}
                              };
             parameters.AddOptionalParameter("subAccountId", subAccountId);
@@ -715,7 +724,7 @@ namespace Binance.Net.SubClients
             parameters.AddOptionalParameter("size", size?.ToString(CultureInfo.InvariantCulture));
             parameters.AddOptionalParameter("recvWindow", receiveWindow?.ToString(CultureInfo.InvariantCulture) ?? _baseClient.DefaultReceiveWindow.TotalMilliseconds.ToString(CultureInfo.InvariantCulture));
 
-            return await _baseClient.SendRequestInternal<BinanceBrokerageFuturesAssetInfo>(_baseClient.GetUrlSpot(futuresSummaryEndpoint, brokerageApi, brokerageVersion), HttpMethod.Get, ct, parameters, true).ConfigureAwait(false);
+            return await _baseClient.SendRequestInternal<BinanceBrokerageFuturesAssetInfo>(_baseClient.GetUrlSpot(futuresSummaryEndpoint, brokerageApi, "2"), HttpMethod.Get, ct, parameters, true).ConfigureAwait(false);
         }
         
         #endregion
@@ -809,6 +818,92 @@ namespace Binance.Net.SubClients
         #region Transfer & history
         
         /// <summary>
+        /// Sub Account Transfer Universal
+        /// <para>You need to enable "internal transfer" option for the api key which requests this endpoint</para>
+        /// <para>Transfer from master account if fromId not sent</para>
+        /// <para>Transfer to master account if toId not sent</para>
+        /// <para>Transfer between futures account is not supported</para>
+        /// </summary>
+        /// <param name="asset">Asset</param>
+        /// <param name="amount">Amount</param>
+        /// <param name="fromId">From id</param>
+        /// <param name="fromAccountType">From type</param>
+        /// <param name="toId">To id</param>
+        /// <param name="toAccountType">To type</param>
+        /// <param name="clientTransferId">Client transfer id, must be unique</param>
+        /// <param name="receiveWindow">The receive window for which this request is active. When the request takes longer than this to complete the server will reject the request</param>
+        /// <param name="ct">Cancellation token</param>
+        /// <returns>Transfer result</returns>
+        public async Task<WebCallResult<BinanceBrokerageTransferResult>> TransferUniversalAsync(string asset, decimal amount,
+            string? fromId, BrokerageAccountType fromAccountType, string? toId, BrokerageAccountType toAccountType,
+            string? clientTransferId = null, int? receiveWindow = null, CancellationToken ct = default)
+        {
+            asset.ValidateNotNull(nameof(asset));
+
+            var timestampResult = await _baseClient.CheckAutoTimestamp(ct).ConfigureAwait(false);
+            if (!timestampResult)
+                return new WebCallResult<BinanceBrokerageTransferResult>(timestampResult.ResponseStatusCode, timestampResult.ResponseHeaders, null, timestampResult.Error);
+
+            var parameters = new Dictionary<string, object>
+                             {
+                                 {"asset", asset},
+                                 {"amount", amount.ToString(CultureInfo.InvariantCulture)},
+                                 {"fromAccountType", JsonConvert.SerializeObject(fromAccountType, new BrokerageAccountTypeConverter(false))},
+                                 {"toAccountType", JsonConvert.SerializeObject(toAccountType, new BrokerageAccountTypeConverter(false))},
+                                 {"timestamp", _baseClient.GetTimestamp()},
+                             };
+            parameters.AddOptionalParameter("fromId", fromId);
+            parameters.AddOptionalParameter("toId", toId);
+            parameters.AddOptionalParameter("clientTranId", clientTransferId);
+            parameters.AddOptionalParameter("recvWindow", receiveWindow?.ToString(CultureInfo.InvariantCulture) ?? _baseClient.DefaultReceiveWindow.TotalMilliseconds.ToString(CultureInfo.InvariantCulture));
+
+            return await _baseClient.SendRequestInternal<BinanceBrokerageTransferResult>(_baseClient.GetUrlSpot(transferUniversalEndpoint, brokerageApi, brokerageVersion), HttpMethod.Post, ct, parameters, true).ConfigureAwait(false);
+        }
+        
+        /// <summary>
+        /// Query Sub Account Transfer History Universal
+        /// <para>Either fromId or toId must be sent. Return fromId equal master account by default</para>
+        /// <para>Only get the latest history of past 30 days</para>
+        /// <para>If showAllStatus is true, the status in response will show four types: INIT,PROCESS,SUCCESS,FAILURE</para>
+        /// </summary>
+        /// <param name="fromId">From id</param>
+        /// <param name="toId">To id</param>
+        /// <param name="clientTransferId">Client transfer id</param>
+        /// <param name="startDate">From date</param>
+        /// <param name="endDate">To date</param>
+        /// <param name="page">Page</param>
+        /// <param name="limit">Limit (default 500, max 500)</param>
+        /// <param name="showAllStatus">Show all status</param>
+        /// <param name="receiveWindow">The receive window for which this request is active. When the request takes longer than this to complete the server will reject the request</param>
+        /// <param name="ct">Cancellation token</param>
+        /// <returns>Transfer history</returns>
+        /// <returns></returns>
+        public async Task<WebCallResult<IEnumerable<BinanceBrokerageTransferTransactionUniversal>>> GetTransferHistoryUniversalAsync(
+            string? fromId = null, string? toId = null, string? clientTransferId = null, DateTime? startDate = null, DateTime? endDate = null, 
+            int? page = null, int? limit = null, bool showAllStatus = false, int? receiveWindow = null, CancellationToken ct = default)
+        {
+            var timestampResult = await _baseClient.CheckAutoTimestamp(ct).ConfigureAwait(false);
+            if (!timestampResult)
+                return new WebCallResult<IEnumerable<BinanceBrokerageTransferTransactionUniversal>>(timestampResult.ResponseStatusCode, timestampResult.ResponseHeaders, null, timestampResult.Error);
+
+            var parameters = new Dictionary<string, object>
+                             {
+                                 {"timestamp", _baseClient.GetTimestamp()},
+                                 {"showAllStatus", showAllStatus.ToString().ToLower()},
+                             };
+            parameters.AddOptionalParameter("fromId", fromId);
+            parameters.AddOptionalParameter("toId", toId);
+            parameters.AddOptionalParameter("clientTranId", clientTransferId);
+            parameters.AddOptionalParameter("startTime", startDate != null ? JsonConvert.SerializeObject(startDate, new TimestampConverter()) : null);
+            parameters.AddOptionalParameter("endTime", endDate != null ? JsonConvert.SerializeObject(endDate, new TimestampConverter()) : null);
+            parameters.AddOptionalParameter("page", page?.ToString(CultureInfo.InvariantCulture));
+            parameters.AddOptionalParameter("limit", limit?.ToString(CultureInfo.InvariantCulture));
+            parameters.AddOptionalParameter("recvWindow", receiveWindow?.ToString(CultureInfo.InvariantCulture) ?? _baseClient.DefaultReceiveWindow.TotalMilliseconds.ToString(CultureInfo.InvariantCulture));
+
+            return await _baseClient.SendRequestInternal<IEnumerable<BinanceBrokerageTransferTransactionUniversal>>(_baseClient.GetUrlSpot(transferUniversalEndpoint, brokerageApi, brokerageVersion), HttpMethod.Get, ct, parameters, true).ConfigureAwait(false);
+        }
+        
+        /// <summary>
         /// Sub Account Transfer (Spot)
         /// <para>You need to enable "internal transfer" option for the api key which requests this endpoint</para>
         /// <para>Transfer from master account if fromId not sent</para>
@@ -857,11 +952,12 @@ namespace Binance.Net.SubClients
         /// <param name="futuresType">Futures type</param>
         /// <param name="fromId">From id</param>
         /// <param name="toId">To id</param>
+        /// <param name="clientTransferId">Client transfer id</param>
         /// <param name="receiveWindow">The receive window for which this request is active. When the request takes longer than this to complete the server will reject the request</param>
         /// <param name="ct">Cancellation token</param>
         /// <returns>Transfer result</returns>
         public async Task<WebCallResult<BinanceBrokerageTransferFuturesResult>> TransferFuturesAsync(string asset, decimal amount, BinanceBrokerageFuturesType futuresType,
-            string? fromId, string? toId, int? receiveWindow = null, CancellationToken ct = default)
+            string? fromId, string? toId, string? clientTransferId = null, int? receiveWindow = null, CancellationToken ct = default)
         {
             asset.ValidateNotNull(nameof(asset));
 
@@ -878,6 +974,7 @@ namespace Binance.Net.SubClients
                              };
             parameters.AddOptionalParameter("fromId", fromId);
             parameters.AddOptionalParameter("toId", toId);
+            parameters.AddOptionalParameter("clientTranId", clientTransferId);
             parameters.AddOptionalParameter("recvWindow", receiveWindow?.ToString(CultureInfo.InvariantCulture) ?? _baseClient.DefaultReceiveWindow.TotalMilliseconds.ToString(CultureInfo.InvariantCulture));
 
             return await _baseClient.SendRequestInternal<BinanceBrokerageTransferFuturesResult>(_baseClient.GetUrlSpot(transferFuturesEndpoint, brokerageApi, brokerageVersion), HttpMethod.Post, ct, parameters, true).ConfigureAwait(false);
@@ -885,30 +982,35 @@ namespace Binance.Net.SubClients
 
         /// <summary>
         /// Query Sub Account Transfer History (Spot)
+        /// <para>If showAllStatus is true, the status in response will show four types: INIT,PROCESS,SUCCESS,FAILURE</para>
+        /// <para>If showAllStatus is false, the status in response will show three types: INIT,PROCESS,SUCCESS</para>
         /// </summary>
-        /// <param name="subAccountId">Sub account id</param>
+        /// <param name="fromId">From id</param>
+        /// <param name="toId">To id</param>
         /// <param name="clientTransferId">Client transfer id</param>
         /// <param name="startDate">From date</param>
         /// <param name="endDate">To date</param>
         /// <param name="page">Page</param>
         /// <param name="limit">Limit (default 500, max 500)</param>
+        /// <param name="showAllStatus">Show all status</param>
         /// <param name="receiveWindow">The receive window for which this request is active. When the request takes longer than this to complete the server will reject the request</param>
         /// <param name="ct">Cancellation token</param>
         /// <returns>Transfer history</returns>
-        public async Task<WebCallResult<IEnumerable<BinanceBrokerageTransferTransaction>>> GetTransferHistoryAsync(string subAccountId, string? clientTransferId = null,
-            DateTime? startDate = null, DateTime? endDate = null, int? page = null, int? limit = null, int? receiveWindow = null, CancellationToken ct = default)
+        public async Task<WebCallResult<IEnumerable<BinanceBrokerageTransferTransaction>>> GetTransferHistoryAsync(string? fromId = null, string? toId = null, 
+            string? clientTransferId = null, DateTime? startDate = null, DateTime? endDate = null, int? page = null, int? limit = null, bool showAllStatus = false,
+            int? receiveWindow = null, CancellationToken ct = default)
         {
-            subAccountId.ValidateNotNull(nameof(subAccountId));
-
             var timestampResult = await _baseClient.CheckAutoTimestamp(ct).ConfigureAwait(false);
             if (!timestampResult)
                 return new WebCallResult<IEnumerable<BinanceBrokerageTransferTransaction>>(timestampResult.ResponseStatusCode, timestampResult.ResponseHeaders, null, timestampResult.Error);
 
             var parameters = new Dictionary<string, object>
                              {
-                                 {"subAccountId", subAccountId},
-                                 {"timestamp", _baseClient.GetTimestamp()}
+                                 {"timestamp", _baseClient.GetTimestamp()},
+                                 {"showAllStatus", showAllStatus.ToString().ToLower()},
                              };
+            parameters.AddOptionalParameter("fromId", fromId);
+            parameters.AddOptionalParameter("toId", toId);
             parameters.AddOptionalParameter("clientTranId", clientTransferId);
             parameters.AddOptionalParameter("startTime", startDate != null ? JsonConvert.SerializeObject(startDate, new TimestampConverter()) : null);
             parameters.AddOptionalParameter("endTime", endDate != null ? JsonConvert.SerializeObject(endDate, new TimestampConverter()) : null);
@@ -924,16 +1026,17 @@ namespace Binance.Net.SubClients
         /// </summary>
         /// <param name="subAccountId">Sub account id</param>
         /// <param name="futuresType">Futures type</param>
-        /// <param name="startDate">From date (default 100 days records)</param>
-        /// <param name="endDate">To date (default 100 days records)</param>
+        /// <param name="startDate">From date (default 30 days records)</param>
+        /// <param name="endDate">To date (default 30 days records)</param>
         /// <param name="page">Page (default 1)</param>
         /// <param name="limit">Limit (default 50, max 500)</param>
+        /// <param name="clientTransferId">Client transfer id</param>
         /// <param name="receiveWindow">The receive window for which this request is active. When the request takes longer than this to complete the server will reject the request</param>
         /// <param name="ct">Cancellation token</param>
         /// <returns>Transfer history</returns>
         public async Task<WebCallResult<BinanceBrokerageTransferFuturesTransactions>> GetTransferFuturesHistoryAsync(string subAccountId, 
             BinanceBrokerageFuturesType futuresType, DateTime? startDate = null, DateTime? endDate = null, 
-            int? page = null, int? limit = null, int? receiveWindow = null, CancellationToken ct = default)
+            int? page = null, int? limit = null, string? clientTransferId = null, int? receiveWindow = null, CancellationToken ct = default)
         {
             subAccountId.ValidateNotNull(nameof(subAccountId));
 
@@ -951,6 +1054,7 @@ namespace Binance.Net.SubClients
             parameters.AddOptionalParameter("endTime", endDate.HasValue ? JsonConvert.SerializeObject(endDate, new TimestampConverter()) : null);
             parameters.AddOptionalParameter("page", page?.ToString(CultureInfo.InvariantCulture));
             parameters.AddOptionalParameter("limit", limit?.ToString(CultureInfo.InvariantCulture));
+            parameters.AddOptionalParameter("clientTranId", clientTransferId);
             parameters.AddOptionalParameter("recvWindow", receiveWindow?.ToString(CultureInfo.InvariantCulture) ?? _baseClient.DefaultReceiveWindow.TotalMilliseconds.ToString(CultureInfo.InvariantCulture));
 
             return await _baseClient.SendRequestInternal<BinanceBrokerageTransferFuturesTransactions>(_baseClient.GetUrlSpot(transferFuturesEndpoint, brokerageApi, brokerageVersion), HttpMethod.Get, ct, parameters, true).ConfigureAwait(false);

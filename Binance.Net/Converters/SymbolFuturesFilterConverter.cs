@@ -14,9 +14,10 @@ namespace Binance.Net.Converters
             return false;
         }
 
-        public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
+        public override object ReadJson(JsonReader reader, Type objectType, object? existingValue, JsonSerializer serializer)
         {
             var obj = JObject.Load(reader);
+#pragma warning disable 8604, 8602
             var type = new SymbolFilterTypeConverter(false).ReadString(obj["filterType"].ToString());
             BinanceFuturesSymbolFilter result;
             switch (type)
@@ -65,18 +66,25 @@ namespace Binance.Net.Converters
                         MaxNumberAlgorithmicOrders = (int)obj["limit"]
                     };
                     break;
+                case SymbolFilterType.MinNotional:
+                    result = new BinanceSymbolMinNotionalFilter
+                    {
+                        MinNotional = obj.ContainsKey("notional") ? (decimal)obj["notional"] : 0
+                    };
+                    break;
                 default:
                     Debug.WriteLine("Can't parse symbol filter of type: " + obj["filterType"]);
                     result = new BinanceFuturesSymbolFilter();
                     break;
             }
+#pragma warning restore 8604
             result.FilterType = type;
             return result;
         }
 
-        public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
+        public override void WriteJson(JsonWriter writer, object? value, JsonSerializer serializer)
         {
-            var filter = (BinanceFuturesSymbolFilter)value;
+            var filter = (BinanceFuturesSymbolFilter?)value;
             writer.WriteStartObject();
 
             writer.WritePropertyName("filterType");
@@ -129,6 +137,11 @@ namespace Binance.Net.Converters
                     writer.WriteValue(pricePercentFilter.MultiplierDown);
                     writer.WritePropertyName("multiplierDecimal");
                     writer.WriteValue(pricePercentFilter.MultiplierDecimal);
+                    break;
+                case SymbolFilterType.MinNotional:
+                    var minNotional = (BinanceSymbolMinNotionalFilter)filter;
+                    writer.WritePropertyName("notional");
+                    writer.WriteValue(minNotional.MinNotional);
                     break;
                 default:
                     Debug.WriteLine("Can't write symbol filter of type: " + filter.FilterType);
